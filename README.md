@@ -17,7 +17,7 @@ In Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client
 ### Authorized JavaScript origins
 
 - `http://localhost:3000`
-- `https://YOUR-PRODUCTION-DOMAIN.vercel.app`
+- `https://veloire-luxury.vercel.app`
 - Add a custom production domain here too, if one is connected later.
 
 ### Authorized redirect URIs
@@ -28,9 +28,9 @@ Google must return to Supabase’s Auth callback, not directly to the app’s `/
 
 In Supabase Dashboard → Authentication → URL Configuration:
 
-- Site URL: `https://YOUR-PRODUCTION-DOMAIN.vercel.app`
+- Site URL: `https://veloire-luxury.vercel.app`
 - Redirect URL: `http://localhost:3000/auth/callback`
-- Redirect URL: `https://YOUR-PRODUCTION-DOMAIN.vercel.app/auth/callback`
+- Redirect URL: `https://veloire-luxury.vercel.app/auth/callback`
 
 In Supabase Dashboard → Authentication → Providers → Google, keep Google enabled and ensure the matching Client ID and Client Secret are saved.
 
