@@ -43,3 +43,6 @@ next-env.d.ts
 
 # local Supabase CLI state
 /supabase/.temp/
+
+.vercel
+.env*
