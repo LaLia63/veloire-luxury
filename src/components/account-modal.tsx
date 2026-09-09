@@ -10,7 +10,7 @@ import type { Order, Product } from "@/lib/types";
 import { useCommerce } from "./commerce-provider";
 import { Modal } from "./modal";
 
-export function AccountModal({ open, onClose, products }: { open: boolean; onClose: () => void; products: Product[] }) {
+export function AccountModal({ open, onClose, onNotifications, products }: { open: boolean; onClose: () => void; onNotifications: () => void; products: Product[] }) {
   const { user, profile, wishlistIds, toggleWishlist, refreshProfile } = useCommerce();
   const [orders, setOrders] = useState<Order[]>([]);
   const [saved, setSaved] = useState(false);
@@ -84,7 +84,7 @@ export function AccountModal({ open, onClose, products }: { open: boolean; onClo
           {orders.length ? orders.map((order) => <article className="order-row" key={order.id}><div><strong>{order.order_number}</strong><span>{new Date(order.created_at).toLocaleDateString()}</span></div><div><span>{titleCase(order.status)}</span><strong>{formatMMK(order.grand_total)}</strong></div></article>) : <div className="small-empty"><PackageCheck /><p>No orders yet. Your future pieces will be kept here.</p></div>}
           <div className="account-section-title wishlist-title"><Heart /><h3>Wishlist</h3></div>
           {savedProducts.length ? <div className="wishlist-list">{savedProducts.map((product) => <article key={product.id}><div><Image src={product.primary_image_url} alt={product.name} fill sizes="76px"/></div><span><strong>{product.name}</strong><small>{formatMMK(product.base_price)}</small></span><button onClick={() => void toggleWishlist(product.id)} aria-label={`Remove ${product.name} from wishlist`}><Trash2 /></button></article>)}</div> : <div className="small-empty"><Heart /><p>Your saved pieces will appear here.</p></div>}
-          <div className="account-links"><button><Bell />Notifications</button>{profile?.role === "admin" && <Link href="/admin"><ShieldCheck />Open admin dashboard</Link>}</div>
+          <div className="account-links"><button onClick={() => { onClose(); onNotifications(); }}><Bell />Notifications</button>{profile?.role === "admin" && <Link href="/admin"><ShieldCheck />Open admin dashboard</Link>}</div>
         </section>
         <section>
           <div className="account-section-title"><UserRound /><h3>Profile</h3></div>

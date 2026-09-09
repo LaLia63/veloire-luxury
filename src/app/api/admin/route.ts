@@ -30,6 +30,7 @@ export async function GET(request: Request) {
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("verify_payment"), paymentId: z.string().uuid() }),
   z.object({ action: z.literal("reject_payment"), paymentId: z.string().uuid(), reason: z.string().min(2).max(300) }),
+  z.object({ action: z.literal("set_order_status"), orderId: z.string().uuid(), status: z.enum(["confirmed","preparing","quality_inspection","luxury_packaging","shipped","delivered","cancelled","return_in_progress","refunded"]) }),
   z.object({ action: z.literal("toggle_product"), productId: z.string().uuid(), available: z.boolean() }),
   z.object({ action: z.literal("archive_product"), productId: z.string().uuid() }),
   z.object({ action: z.literal("upsert_category"), id: z.number().int().optional(), departmentId: z.number().int(), name: z.string().min(2).max(80), slug: z.string().regex(/^[a-z0-9-]+$/), sortOrder: z.number().int().min(0), active: z.boolean() }),
@@ -48,12 +49,22 @@ export async function POST(request: Request) {
   } else if (input.action === "reject_payment") {
     const { data } = await service.from("vlr_payments").update({ status: "rejected", rejection_reason: input.reason, verified_by: user.id }).eq("id", input.paymentId).eq("status", "payment_submitted").select("id").maybeSingle();
     if (!data) return Response.json({ error: "Payment is not awaiting review." }, { status: 409 }); entityId = input.paymentId;
+  } else if (input.action === "set_order_status") {
+    const { data: current } = await service.from("vlr_orders").select("id,status,payment_status").eq("id", input.orderId).maybeSingle();
+    if (!current) return Response.json({ error: "Order not found." }, { status: 404 });
+    if (input.status !== "cancelled" && current.payment_status !== "verified") return Response.json({ error: "Verify the payment before advancing this order." }, { status: 409 });
+    if (current.status === input.status) return Response.json({ ok: true });
+    const update: { status: typeof input.status; delivered_at?: string } = { status: input.status };
+    if (input.status === "delivered") update.delivered_at = new Date().toISOString();
+    const { data, error } = await service.from("vlr_orders").update(update).eq("id", input.orderId).select("id").maybeSingle();
+    if (error || !data) return Response.json({ error: "Order status could not be updated." }, { status: 409 });
+    entityId = input.orderId;
   } else if (input.action === "toggle_product" || input.action === "archive_product") {
     entityId = input.productId; await service.from("vlr_products").update({ is_available: input.action === "toggle_product" ? input.available : false }).eq("id", input.productId);
   } else if (input.action === "upsert_category") {
     const row = { department_id: input.departmentId, name: input.name, slug: input.slug, sort_order: input.sortOrder, is_active: input.active };
     const { data } = input.id ? await service.from("vlr_categories").update(row).eq("id", input.id).select("id").single() : await service.from("vlr_categories").insert(row).select("id").single(); entityId = String(data?.id ?? input.id ?? "");
   }
-  await service.from("vlr_admin_audit_logs").insert({ actor_id: user.id, action: input.action, entity_type: input.action.includes("payment") ? "payment" : input.action.includes("category") ? "category" : "product", entity_id: entityId });
+  await service.from("vlr_admin_audit_logs").insert({ actor_id: user.id, action: input.action, entity_type: input.action.includes("payment") ? "payment" : input.action.includes("order") ? "order" : input.action.includes("category") ? "category" : "product", entity_id: entityId });
   return Response.json({ ok: true });
 }

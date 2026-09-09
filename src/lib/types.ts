@@ -12,3 +12,4 @@ export type Product = {
 export type BagItem = { variantId: string; product: Product; variant: Variant; quantity: number };
 export type Profile = { id: string; email: string; full_name: string | null; avatar_url: string | null; phone: string | null; date_of_birth: string | null; gender: string | null; role: "customer" | "admin"; loyalty_points: number };
 export type Order = { id: string; order_number: string; status: string; payment_status: string; grand_total: number; created_at: string; loyalty_points_earned: number };
+export type Notification = { id: string; order_id: string | null; type: string; title: string; message: string; is_read: boolean; created_at: string };

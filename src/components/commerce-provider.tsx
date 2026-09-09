@@ -3,16 +3,21 @@
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowser } from "@/lib/supabase-client";
-import type { BagItem, Product, Profile, Variant } from "@/lib/types";
+import type { BagItem, Notification, Product, Profile, Variant } from "@/lib/types";
 
 type CommerceContextValue = {
   bag: BagItem[]; session: Session | null; user: User | null; profile: Profile | null; authReady: boolean;
   wishlistIds: string[];
+  notifications: Notification[];
+  unreadNotificationCount: number;
   addToBag: (product: Product, variant: Variant, quantity?: number) => void;
   updateQuantity: (variantId: string, quantity: number) => void;
   removeFromBag: (variantId: string) => void;
   clearBag: () => void;
   toggleWishlist: (productId: string) => Promise<"added" | "removed">;
+  refreshNotifications: () => Promise<void>;
+  markNotificationRead: (notificationId: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
 
@@ -29,6 +34,7 @@ export function CommerceProvider({ children, products }: { children: React.React
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [authReady, setAuthReady] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
@@ -39,6 +45,11 @@ export function CommerceProvider({ children, products }: { children: React.React
   const loadWishlist = useCallback(async (userId: string) => {
     const { data } = await supabase.from("vlr_wishlist_items").select("product_id").eq("user_id", userId);
     setWishlistIds(((data ?? []) as { product_id: string }[]).map((row) => row.product_id));
+  }, [supabase]);
+
+  const loadNotifications = useCallback(async (userId: string) => {
+    const { data } = await supabase.from("vlr_notifications").select("id,order_id,type,title,message,is_read,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(40);
+    setNotifications((data as Notification[] | null) ?? []);
   }, [supabase]);
 
   const mergeGuestBag = useCallback(async (userId: string, guestBag: BagItem[]) => {
@@ -70,7 +81,7 @@ export function CommerceProvider({ children, products }: { children: React.React
       setBag(guestBag);
       setSession(data.session);
       if (data.session?.user) {
-        await Promise.all([loadProfile(data.session.user.id), loadWishlist(data.session.user.id), mergeGuestBag(data.session.user.id, guestBag)]);
+        await Promise.all([loadProfile(data.session.user.id), loadWishlist(data.session.user.id), loadNotifications(data.session.user.id), mergeGuestBag(data.session.user.id, guestBag)]);
       }
       setAuthReady(true);
     });
@@ -78,11 +89,24 @@ export function CommerceProvider({ children, products }: { children: React.React
       setSession(nextSession);
       if (nextSession?.user) {
         const currentGuest = (() => { try { return JSON.parse(localStorage.getItem(BAG_KEY) ?? "[]") as BagItem[]; } catch { return []; } })();
-        setTimeout(() => void Promise.all([loadProfile(nextSession.user.id), loadWishlist(nextSession.user.id), mergeGuestBag(nextSession.user.id, currentGuest)]), 0);
-      } else { setProfile(null); setWishlistIds([]); }
+        setTimeout(() => void Promise.all([loadProfile(nextSession.user.id), loadWishlist(nextSession.user.id), loadNotifications(nextSession.user.id), mergeGuestBag(nextSession.user.id, currentGuest)]), 0);
+      } else { setProfile(null); setWishlistIds([]); setNotifications([]); }
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
-  }, [loadProfile, loadWishlist, mergeGuestBag, supabase]);
+  }, [loadNotifications, loadProfile, loadWishlist, mergeGuestBag, supabase]);
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId) return;
+    const channel = supabase
+      .channel(`vlr-notifications-${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "vlr_notifications", filter: `user_id=eq.${userId}` }, (payload: { new: Record<string, unknown> }) => {
+        const notification = payload.new as Notification;
+        setNotifications((current) => current.some((item) => item.id === notification.id) ? current : [notification, ...current].slice(0, 40));
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [session?.user.id, supabase]);
 
   const persist = useCallback((next: BagItem[]) => {
     setBag(next);
@@ -133,6 +157,19 @@ export function CommerceProvider({ children, products }: { children: React.React
     }
     return exists ? "removed" : "added";
   }, [session, supabase, wishlistIds]);
+  const refreshNotifications = useCallback(async () => { if (session?.user) await loadNotifications(session.user.id); }, [loadNotifications, session]);
+  const markNotificationRead = useCallback(async (notificationId: string) => {
+    if (!session?.user) return;
+    setNotifications((current) => current.map((item) => item.id === notificationId ? { ...item, is_read: true } : item));
+    const { error } = await supabase.from("vlr_notifications").update({ is_read: true }).eq("id", notificationId).eq("user_id", session.user.id);
+    if (error) await loadNotifications(session.user.id);
+  }, [loadNotifications, session, supabase]);
+  const markAllNotificationsRead = useCallback(async () => {
+    if (!session?.user) return;
+    setNotifications((current) => current.map((item) => ({ ...item, is_read: true })));
+    const { error } = await supabase.from("vlr_notifications").update({ is_read: true }).eq("user_id", session.user.id).eq("is_read", false);
+    if (error) await loadNotifications(session.user.id);
+  }, [loadNotifications, session, supabase]);
   const refreshProfile = useCallback(async () => { if (session?.user) await loadProfile(session.user.id); }, [loadProfile, session]);
 
   useEffect(() => {
@@ -147,7 +184,7 @@ export function CommerceProvider({ children, products }: { children: React.React
     return () => lifecycle.abort();
   }, [bag, updateQuantity]);
 
-  return <CommerceContext.Provider value={{ bag, session, user: session?.user ?? null, profile, authReady, wishlistIds, addToBag, updateQuantity, removeFromBag, clearBag, toggleWishlist, refreshProfile }}>{children}</CommerceContext.Provider>;
+  return <CommerceContext.Provider value={{ bag, session, user: session?.user ?? null, profile, authReady, wishlistIds, notifications, unreadNotificationCount: notifications.filter((item) => !item.is_read).length, addToBag, updateQuantity, removeFromBag, clearBag, toggleWishlist, refreshNotifications, markNotificationRead, markAllNotificationsRead, refreshProfile }}>{children}</CommerceContext.Provider>;
 }
 
 export function useCommerce() {

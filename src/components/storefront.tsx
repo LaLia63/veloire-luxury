@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ArrowUpRight, Bot, Check, Heart, Menu, Search, ShoppingBag, UserRound } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bell, Bot, Check, Heart, Menu, Search, ShoppingBag, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatMMK } from "@/lib/format";
 import type { Department, Product } from "@/lib/types";
@@ -12,10 +12,11 @@ import { AuthModal } from "./auth-modal";
 import { BagDrawer } from "./bag-drawer";
 import { CommerceProvider, useCommerce } from "./commerce-provider";
 import { Modal } from "./modal";
+import { NotificationPanel } from "./notification-panel";
 import { ProductModal } from "./product-modal";
 
 function Experience({ products, departments }: { products: Product[]; departments: Department[] }) {
-  const { bag, user, profile, wishlistIds, toggleWishlist } = useCommerce();
+  const { bag, user, profile, wishlistIds, toggleWishlist, unreadNotificationCount } = useCommerce();
   const [department, setDepartment] = useState(departments[0]?.slug ?? "women");
   const [category, setCategory] = useState<string | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
@@ -24,6 +25,7 @@ function Experience({ products, departments }: { products: Product[]; department
   const [authOpen, setAuthOpen] = useState(false);
   const [authIntent, setAuthIntent] = useState("continue");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -64,7 +66,7 @@ function Experience({ products, departments }: { products: Product[]; department
     <header className="floating-nav">
       <Link className="wordmark" href="#top">VÉLOIRE</Link>
       <nav aria-label="Main navigation"><Link href="#top">Home</Link><Link href="#shop">Shop</Link><Link href="#collections">Collections</Link><button onClick={() => setAiOpen(true)}>VÉLOIRE AI</button><Link href="#about">About</Link></nav>
-      <div className="nav-actions"><button aria-label="Search" onClick={() => setSearchOpen(true)}><Search /></button><button aria-label="Wishlist" onClick={() => user ? setAccountOpen(true) : askAuth("view and curate your wishlist")}><Heart /></button><button aria-label={user ? "Account" : "Sign in"} className="account-trigger" onClick={() => user ? setAccountOpen(true) : askAuth("access your private account")}>{profile?.avatar_url ? <Image src={profile.avatar_url} alt="" width={28} height={28} /> : <UserRound />}<span>{user ? "Account" : "Sign in"}</span></button><button aria-label="Shopping bag" className="bag-trigger" onClick={() => setBagOpen(true)}><ShoppingBag /><b>{bag.reduce((sum, item) => sum + item.quantity, 0)}</b></button><button className="menu-trigger" aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}><Menu /></button></div>
+      <div className="nav-actions"><button aria-label="Search" onClick={() => setSearchOpen(true)}><Search /></button><button aria-label="Wishlist" onClick={() => user ? setAccountOpen(true) : askAuth("view and curate your wishlist")}><Heart /></button><button aria-label="Notifications" className="notification-trigger" onClick={() => user ? setNotificationsOpen(true) : askAuth("view your order notifications")}><Bell />{unreadNotificationCount > 0 && <b>{unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}</b>}</button><button aria-label={user ? "Account" : "Sign in"} className="account-trigger" onClick={() => user ? setAccountOpen(true) : askAuth("access your private account")}>{profile?.avatar_url ? <Image src={profile.avatar_url} alt="" width={28} height={28} /> : <UserRound />}<span>{user ? "Account" : "Sign in"}</span></button><button aria-label="Shopping bag" className="bag-trigger" onClick={() => setBagOpen(true)}><ShoppingBag /><b>{bag.reduce((sum, item) => sum + item.quantity, 0)}</b></button><button className="menu-trigger" aria-label="Menu" onClick={() => setMenuOpen(!menuOpen)}><Menu /></button></div>
       {menuOpen && <div className="mobile-menu"><a href="#shop" onClick={() => setMenuOpen(false)}>Shop</a><a href="#collections" onClick={() => setMenuOpen(false)}>Collections</a><button onClick={() => { setAiOpen(true); setMenuOpen(false); }}>VÉLOIRE AI</button><a href="#about" onClick={() => setMenuOpen(false)}>About</a></div>}
     </header>
 
@@ -82,7 +84,8 @@ function Experience({ products, departments }: { products: Product[]; department
     <BagDrawer open={bagOpen} onClose={() => setBagOpen(false)} onAuth={askAuth}/>
     <AIStylist open={aiOpen} onClose={() => setAiOpen(false)} products={products} onBag={() => setBagOpen(true)}/>
     <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} intent={authIntent}/>
-    <AccountModal open={accountOpen} onClose={() => setAccountOpen(false)} products={products}/>
+    <AccountModal open={accountOpen} onClose={() => setAccountOpen(false)} onNotifications={() => setNotificationsOpen(true)} products={products}/>
+    <NotificationPanel open={notificationsOpen} onClose={() => setNotificationsOpen(false)}/>
     <Modal open={searchOpen} onClose={() => setSearchOpen(false)} className="search-modal"><p className="eyebrow dark">Search the Maison</p><div className="search-field"><Search/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search silhouettes, objects, materials…"/></div><div className="search-results">{query && searchResults.slice(0, 6).map((product) => <button key={product.id} onClick={() => { setSelected(product); setSearchOpen(false); }}><div><Image src={product.primary_image_url} alt="" fill sizes="70px"/></div><span><strong>{product.name}</strong><small>{product.category?.name} · {formatMMK(product.base_price)}</small></span><ArrowRight/></button>)}{query && !searchResults.length && <div className="no-results"><p>No piece matches “{query}”.</p><small>Try a category, material or occasion.</small></div>}</div></Modal>
     {wishlistNotice && <div className="status-toast" role="status"><Check aria-hidden="true" />{wishlistNotice}</div>}
   </main>;
