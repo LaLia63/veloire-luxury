@@ -7,10 +7,12 @@ import type { BagItem, Product, Profile, Variant } from "@/lib/types";
 
 type CommerceContextValue = {
   bag: BagItem[]; session: Session | null; user: User | null; profile: Profile | null; authReady: boolean;
+  wishlistIds: string[];
   addToBag: (product: Product, variant: Variant, quantity?: number) => void;
   updateQuantity: (variantId: string, quantity: number) => void;
   removeFromBag: (variantId: string) => void;
   clearBag: () => void;
+  toggleWishlist: (productId: string) => Promise<"added" | "removed">;
   refreshProfile: () => Promise<void>;
 };
 
@@ -26,11 +28,17 @@ export function CommerceProvider({ children, products }: { children: React.React
   const [bag, setBag] = useState<BagItem[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
   const [authReady, setAuthReady] = useState(false);
 
   const loadProfile = useCallback(async (userId: string) => {
     const { data } = await supabase.from("vlr_profiles").select("*").eq("id", userId).maybeSingle();
     setProfile((data as Profile | null) ?? null);
+  }, [supabase]);
+
+  const loadWishlist = useCallback(async (userId: string) => {
+    const { data } = await supabase.from("vlr_wishlist_items").select("product_id").eq("user_id", userId);
+    setWishlistIds(((data ?? []) as { product_id: string }[]).map((row) => row.product_id));
   }, [supabase]);
 
   const mergeGuestBag = useCallback(async (userId: string, guestBag: BagItem[]) => {
@@ -57,12 +65,12 @@ export function CommerceProvider({ children, products }: { children: React.React
     if (saved) {
       try { guestBag = JSON.parse(saved) as BagItem[]; } catch { localStorage.removeItem(BAG_KEY); }
     }
-    setBag(guestBag);
     supabase.auth.getSession().then(async ({ data }: { data: { session: Session | null } }) => {
       if (!active) return;
+      setBag(guestBag);
       setSession(data.session);
       if (data.session?.user) {
-        await Promise.all([loadProfile(data.session.user.id), mergeGuestBag(data.session.user.id, guestBag)]);
+        await Promise.all([loadProfile(data.session.user.id), loadWishlist(data.session.user.id), mergeGuestBag(data.session.user.id, guestBag)]);
       }
       setAuthReady(true);
     });
@@ -70,11 +78,11 @@ export function CommerceProvider({ children, products }: { children: React.React
       setSession(nextSession);
       if (nextSession?.user) {
         const currentGuest = (() => { try { return JSON.parse(localStorage.getItem(BAG_KEY) ?? "[]") as BagItem[]; } catch { return []; } })();
-        setTimeout(() => void Promise.all([loadProfile(nextSession.user.id), mergeGuestBag(nextSession.user.id, currentGuest)]), 0);
-      } else setProfile(null);
+        setTimeout(() => void Promise.all([loadProfile(nextSession.user.id), loadWishlist(nextSession.user.id), mergeGuestBag(nextSession.user.id, currentGuest)]), 0);
+      } else { setProfile(null); setWishlistIds([]); }
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
-  }, [loadProfile, mergeGuestBag, supabase]);
+  }, [loadProfile, loadWishlist, mergeGuestBag, supabase]);
 
   const persist = useCallback((next: BagItem[]) => {
     setBag(next);
@@ -111,6 +119,20 @@ export function CommerceProvider({ children, products }: { children: React.React
     persist([]);
     if (session?.user && ids.length) void supabase.from("vlr_bag_items").delete().eq("user_id", session.user.id).in("variant_id", ids);
   }, [bag, persist, session, supabase]);
+  const toggleWishlist = useCallback(async (productId: string) => {
+    if (!session?.user) throw new Error("Sign in to use your wishlist");
+    const exists = wishlistIds.includes(productId);
+    setWishlistIds((current) => exists ? current.filter((id) => id !== productId) : [...current, productId]);
+    const query = exists
+      ? supabase.from("vlr_wishlist_items").delete().eq("user_id", session.user.id).eq("product_id", productId)
+      : supabase.from("vlr_wishlist_items").insert({ user_id: session.user.id, product_id: productId });
+    const { error } = await query;
+    if (error) {
+      setWishlistIds((current) => exists ? [...current, productId] : current.filter((id) => id !== productId));
+      throw error;
+    }
+    return exists ? "removed" : "added";
+  }, [session, supabase, wishlistIds]);
   const refreshProfile = useCallback(async () => { if (session?.user) await loadProfile(session.user.id); }, [loadProfile, session]);
 
   useEffect(() => {
@@ -125,7 +147,7 @@ export function CommerceProvider({ children, products }: { children: React.React
     return () => lifecycle.abort();
   }, [bag, updateQuantity]);
 
-  return <CommerceContext.Provider value={{ bag, session, user: session?.user ?? null, profile, authReady, addToBag, updateQuantity, removeFromBag, clearBag, refreshProfile }}>{children}</CommerceContext.Provider>;
+  return <CommerceContext.Provider value={{ bag, session, user: session?.user ?? null, profile, authReady, wishlistIds, addToBag, updateQuantity, removeFromBag, clearBag, toggleWishlist, refreshProfile }}>{children}</CommerceContext.Provider>;
 }
 
 export function useCommerce() {
