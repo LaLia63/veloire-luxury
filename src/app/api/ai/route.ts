@@ -34,6 +34,8 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ message: "Please rephrase your request.", actions: [] }, { status: 400 });
   const service = getServiceClient();
+  const { data: aiSettings } = await service.from("vlr_ai_settings").select("enabled").eq("id", true).maybeSingle();
+  if (aiSettings?.enabled === false) return Response.json({ message: "The VÉLOIRE Private Stylist is currently unavailable. Please try again later.", actions: [] }, { status: 503 });
   const { data } = await service.from("vlr_products").select("id,name,description,base_price,product_type,variants:vlr_product_variants(id,sku,option_values,price_adjustment,stock)").eq("is_available", true).abortSignal(AbortSignal.timeout(3000));
   const fallbackCatalog = FALLBACK_PRODUCTS.map((item) => ({ id:item.id,name:item.name,description:item.description,base_price:item.base_price,product_type:item.product_type,variants:item.variants }));
   const catalog = (((data?.length ? data : fallbackCatalog) ?? []) as unknown as CatalogItem[]).map((item) => ({ ...item, variants: item.variants.filter((variant) => variant.stock > 0) })).filter((item) => item.variants.length > 0);

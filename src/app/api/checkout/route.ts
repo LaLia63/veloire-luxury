@@ -15,6 +15,8 @@ export async function POST(request: Request) {
   const service = getServiceClient();
   const { data: { user }, error: authError } = await service.auth.getUser(token);
   if (authError || !user) return Response.json({ error: "Your session has expired. Please sign in again." }, { status: 401 });
+  const { data: profile } = await service.from("vlr_profiles").select("is_active").eq("id", user.id).maybeSingle();
+  if (profile?.is_active === false) return Response.json({ error: "This account is disabled. Please contact VÉLOIRE concierge." }, { status: 403 });
   const parsed = checkoutSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Please review your contact, address and quantities." }, { status: 400 });
   const payload = parsed.data;
