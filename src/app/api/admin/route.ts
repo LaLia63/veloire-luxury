@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getServiceClient } from "@/lib/supabase-server";
 
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   if (!admin) return Response.json({ error: "Admin access required" }, { status: 403 });
   const { service } = admin;
   const [products, orders, payments, returns, profiles, lowStock, departments, categories, aiSettings, adminNotifications, authUsers] = await Promise.all([
-    service.from("vlr_products").select("id,name,slug,description,product_type,base_price,material,care,shipping_note,return_policy,primary_image_url,hover_image_url,department_id,category_id,is_available,is_featured,is_new_arrival,created_at,variants:vlr_product_variants(id,sku,option_values,price_adjustment,stock,low_stock_threshold,is_active),department:vlr_departments(id,name),category:vlr_categories(id,name)").order("created_at", { ascending: false }),
+    service.from("vlr_products").select("id,name,slug,description,product_type,base_price,material,care,shipping_note,return_policy,primary_image_url,hover_image_url,video_url,department_id,category_id,is_available,is_featured,is_new_arrival,created_at,variants:vlr_product_variants(id,sku,option_values,price_adjustment,stock,low_stock_threshold,is_active),department:vlr_departments(id,name),category:vlr_categories(id,name)").order("created_at", { ascending: false }),
     service.from("vlr_orders").select("id,order_number,user_id,status,payment_status,contact_email,contact_phone,delivery_address,delivery_method,subtotal,discount,loyalty_discount,delivery_fee,grand_total,loyalty_points_earned,loyalty_points_redeemed,delivered_at,created_at,updated_at,items:vlr_order_items(id,product_name,variant_snapshot,sku,unit_price,quantity,line_total,primary_image_url)").order("created_at", { ascending: false }).limit(200),
     service.from("vlr_payments").select("id,order_id,user_id,provider,amount,status,proof_path,submitted_at,verified_at,rejection_reason,created_at").order("created_at", { ascending: false }).limit(200),
     service.from("vlr_returns").select("id,order_id,user_id,status,reason,photo_paths,admin_note,requested_at,updated_at").order("requested_at", { ascending: false }).limit(200),
@@ -78,7 +79,9 @@ export async function GET(request: Request) {
 
 const productSchema = z.object({
   name: z.string().trim().min(2).max(140), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), description: z.string().trim().min(2).max(4000),
-  productType: z.string().trim().min(2).max(80), basePrice: z.number().nonnegative(), primaryImageUrl: z.string().trim().min(1).max(600),
+  productType: z.string().trim().min(2).max(80), basePrice: z.number().nonnegative(), material: z.string().trim().max(1000).nullable(), care: z.string().trim().max(1000).nullable(),
+  shippingNote: z.string().trim().max(1000).nullable(), returnPolicy: z.string().trim().max(1000).nullable(), primaryImageUrl: z.string().trim().min(1).max(1000),
+  hoverImageUrl: z.string().trim().max(1000).nullable(), videoUrl: z.string().trim().max(1000).nullable(),
   departmentId: z.number().int().positive(), categoryId: z.number().int().positive().nullable(), isAvailable: z.boolean(), isFeatured: z.boolean(), isNewArrival: z.boolean(),
 });
 const variantSchema = z.object({
@@ -103,7 +106,25 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 function productRow(product: z.infer<typeof productSchema>) {
-  return { name: product.name, slug: product.slug, description: product.description, product_type: product.productType, base_price: product.basePrice, primary_image_url: product.primaryImageUrl, department_id: product.departmentId, category_id: product.categoryId, is_available: product.isAvailable, is_featured: product.isFeatured, is_new_arrival: product.isNewArrival };
+  return {
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    product_type: product.productType,
+    base_price: product.basePrice,
+    material: product.material,
+    care: product.care,
+    shipping_note: product.shippingNote,
+    return_policy: product.returnPolicy,
+    primary_image_url: product.primaryImageUrl,
+    hover_image_url: product.hoverImageUrl,
+    video_url: product.videoUrl,
+    department_id: product.departmentId,
+    category_id: product.categoryId,
+    is_available: product.isAvailable,
+    is_featured: product.isFeatured,
+    is_new_arrival: product.isNewArrival,
+  };
 }
 function variantRow(variant: z.infer<typeof variantSchema>, productId: string) {
   return { product_id: productId, sku: variant.sku, option_values: variant.optionValues, price_adjustment: variant.priceAdjustment, stock: variant.stock, low_stock_threshold: variant.lowStockThreshold, is_active: variant.isActive };
@@ -165,5 +186,8 @@ export async function POST(request: Request) {
   }
 
   await service.from("vlr_admin_audit_logs").insert({ actor_id: user.id, action: input.action, entity_type: entityType, entity_id: entityId });
+  if (["create_product", "update_product", "delete_product", "toggle_product", "archive_product", "upsert_category", "delete_category"].includes(input.action)) {
+    revalidatePath("/");
+  }
   return Response.json({ ok: true });
 }

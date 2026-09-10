@@ -13,7 +13,7 @@ type CommerceContextValue = {
   addToBag: (product: Product, variant: Variant, quantity?: number) => void;
   updateQuantity: (variantId: string, quantity: number) => void;
   removeFromBag: (variantId: string) => void;
-  clearBag: () => void;
+  clearBag: () => Promise<void>;
   toggleWishlist: (productId: string) => Promise<"added" | "removed">;
   refreshNotifications: () => Promise<void>;
   markNotificationRead: (notificationId: string) => Promise<void>;
@@ -28,7 +28,38 @@ function clampQuantity(quantity: number, stock: number) {
   return Math.max(0, Math.min(Math.trunc(quantity), stock));
 }
 
-export function CommerceProvider({ children, products }: { children: React.ReactNode; products: Product[] }) {
+function reconcileBagWithCatalog(current: BagItem[], products: Product[]) {
+  const byVariant = new Map<string, { product: Product; variant: Variant }>();
+  for (const product of products) {
+    for (const variant of product.variants) byVariant.set(variant.id, { product, variant });
+  }
+  const items: BagItem[] = [];
+  const removedVariantIds: string[] = [];
+  const quantityUpdates: { variant_id: string; quantity: number }[] = [];
+  let changed = false;
+
+  for (const item of current) {
+    const live = byVariant.get(item.variantId);
+    if (!live || !live.variant.is_active) {
+      removedVariantIds.push(item.variantId);
+      changed = true;
+      continue;
+    }
+    const quantity = clampQuantity(item.quantity, live.variant.stock);
+    if (quantity < 1) {
+      removedVariantIds.push(item.variantId);
+      changed = true;
+      continue;
+    }
+    if (quantity !== item.quantity) quantityUpdates.push({ variant_id: item.variantId, quantity });
+    if (quantity !== item.quantity || item.product !== live.product || item.variant !== live.variant) changed = true;
+    items.push({ variantId: item.variantId, product: live.product, variant: live.variant, quantity });
+  }
+
+  return { changed, items, removedVariantIds, quantityUpdates };
+}
+
+export function CommerceProvider({ children, products, catalogAuthoritative }: { children: React.ReactNode; products: Product[]; catalogAuthoritative: boolean }) {
   const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [bag, setBag] = useState<BagItem[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -108,6 +139,32 @@ export function CommerceProvider({ children, products }: { children: React.React
     return () => { void supabase.removeChannel(channel); };
   }, [session?.user.id, supabase]);
 
+  // Product updates from the admin refresh the server props. Reconcile every
+  // stored bag snapshot with those live products so price, media, options and
+  // stock cannot remain stale, and remove variants that are no longer sold.
+  useEffect(() => {
+    if (!catalogAuthoritative) return;
+    const reconciled = reconcileBagWithCatalog(bag, products);
+    if (!reconciled.changed) return;
+    const updateTimer = window.setTimeout(() => setBag(reconciled.items), 0);
+
+    const userId = session?.user.id;
+    if (!userId) {
+      localStorage.setItem(BAG_KEY, JSON.stringify(reconciled.items));
+      return () => window.clearTimeout(updateTimer);
+    }
+    if (reconciled.removedVariantIds.length) {
+      void supabase.from("vlr_bag_items").delete().eq("user_id", userId).in("variant_id", reconciled.removedVariantIds);
+    }
+    if (reconciled.quantityUpdates.length) {
+      void supabase.from("vlr_bag_items").upsert(
+        reconciled.quantityUpdates.map((item) => ({ ...item, user_id: userId })),
+        { onConflict: "user_id,variant_id" },
+      );
+    }
+    return () => window.clearTimeout(updateTimer);
+  }, [bag, catalogAuthoritative, products, session?.user.id, supabase]);
+
   const persist = useCallback((next: BagItem[]) => {
     setBag(next);
     if (!session?.user) localStorage.setItem(BAG_KEY, JSON.stringify(next));
@@ -138,11 +195,12 @@ export function CommerceProvider({ children, products }: { children: React.React
   }, [bag, persist, syncItem]);
 
   const removeFromBag = useCallback((variantId: string) => updateQuantity(variantId, 0), [updateQuantity]);
-  const clearBag = useCallback(() => {
-    const ids = bag.map((item) => item.variantId);
+  const clearBag = useCallback(async () => {
     persist([]);
-    if (session?.user && ids.length) void supabase.from("vlr_bag_items").delete().eq("user_id", session.user.id).in("variant_id", ids);
-  }, [bag, persist, session, supabase]);
+    if (!session?.user) return;
+    const { error } = await supabase.from("vlr_bag_items").delete().eq("user_id", session.user.id);
+    if (error) throw error;
+  }, [persist, session, supabase]);
   const toggleWishlist = useCallback(async (productId: string) => {
     if (!session?.user) throw new Error("Sign in to use your wishlist");
     const exists = wishlistIds.includes(productId);

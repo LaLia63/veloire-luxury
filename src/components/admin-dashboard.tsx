@@ -2,14 +2,14 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Activity, ArrowLeft, BarChart3, Bell, Boxes, ChevronRight, CircleDollarSign, Edit3, Eye, ImageIcon, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Users, X } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, Bell, Boxes, ChevronRight, CircleDollarSign, Edit3, Eye, ImageIcon, LayoutDashboard, PackageCheck, Plus, RefreshCw, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Upload, Users, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { formatMMK, titleCase } from "@/lib/format";
 import { getSupabaseBrowser } from "@/lib/supabase-client";
 
 type Dict = Record<string, unknown>;
 type Variant = { id?: string; sku: string; option_values: Record<string, string>; price_adjustment: number; stock: number; low_stock_threshold: number; is_active: boolean };
-type Product = { id: string; name: string; slug: string; description: string; product_type: string; base_price: number; primary_image_url: string; department_id: number; category_id: number | null; is_available: boolean; is_featured: boolean; is_new_arrival: boolean; variants: Variant[] };
+type Product = { id: string; name: string; slug: string; description: string; product_type: string; base_price: number; material: string | null; care: string | null; shipping_note: string | null; return_policy: string | null; primary_image_url: string; hover_image_url: string | null; video_url: string | null; department_id: number; category_id: number | null; is_available: boolean; is_featured: boolean; is_new_arrival: boolean; variants: Variant[] };
 type Customer = { id: string; email: string; full_name: string | null; role: string; loyalty_points: number; disabled: boolean; last_sign_in_at: string | null };
 type Item = { id: string; product_name: string; variant_snapshot: Record<string, string>; sku: string; unit_price: number; quantity: number; line_total: number; primary_image_url: string | null };
 type Order = { id: string; order_number: string; user_id: string; status: string; payment_status: string; contact_email: string; contact_phone: string; delivery_address: Record<string, string>; delivery_method: string; subtotal: number; discount: number; loyalty_discount: number; delivery_fee: number; grand_total: number; created_at: string; items: Item[]; customer: Customer | null };
@@ -84,9 +84,114 @@ function Payments({ rows, orders, customers, act }: { rows: Payment[]; orders: O
 
 function Catalog({ data, editing, setEditing, act }: { data: AdminData; editing: Product | null; setEditing: (p: Product | null) => void; act: (p: Dict) => Promise<boolean> }) { return <div className="catalog-admin-grid"><ProductForm key={editing?.id ?? "new"} product={editing} departments={data.departments} categories={data.categories} cancel={() => setEditing(null)} act={act}/><section className="admin-table-card"><Heading eyebrow="Live catalog" title="Products" action={<button onClick={() => setEditing(null)}><Plus />New product</button>}/><div className="catalog-list">{data.products.map((product) => <article key={product.id}><div className="catalog-thumb"><Image src={product.primary_image_url} alt="" fill sizes="62px"/></div><span><strong>{product.name}</strong><small>{product.variants[0]?.sku ?? "No variant"} · {formatMMK(product.base_price)}</small></span><i>{product.is_available ? "Active" : "Hidden"}</i><button aria-label={`Edit ${product.name}`} onClick={() => setEditing(product)}><Edit3 /></button><button aria-label={`Delete ${product.name}`} onClick={() => window.confirm(`Delete ${product.name}? Historical receipt snapshots will remain.`) && void act({ action: "delete_product", productId: product.id })}><Trash2 /></button></article>)}</div></section><Categories departments={data.departments} rows={data.categories} act={act}/></div>; }
 
-function ProductForm({ product, departments, categories, cancel, act }: { product: Product | null; departments: Department[]; categories: Category[]; cancel: () => void; act: (p: Dict) => Promise<boolean> }) { const variant = product?.variants[0]; const submit = async (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); const payload = { action: product ? "update_product" : "create_product", ...(product ? { productId: product.id } : {}), product: { name: String(f.get("name")), slug: String(f.get("slug")), description: String(f.get("description")), productType: String(f.get("productType")), basePrice: Number(f.get("basePrice")), primaryImageUrl: String(f.get("primaryImageUrl")), departmentId: Number(f.get("departmentId")), categoryId: Number(f.get("categoryId")) || null, isAvailable: f.get("isAvailable") === "on", isFeatured: f.get("isFeatured") === "on", isNewArrival: f.get("isNewArrival") === "on" }, variant: { ...(variant?.id ? { id: variant.id } : {}), sku: String(f.get("sku")), optionValues: { [String(f.get("optionName") || "Edition")]: String(f.get("optionValue") || "Standard") }, priceAdjustment: Number(f.get("priceAdjustment")), stock: Number(f.get("stock")), lowStockThreshold: Number(f.get("lowStockThreshold")), isActive: true } }; if (await act(payload)) cancel(); }; return <section className="catalog-form-card"><Heading eyebrow="Catalog editor" title={product ? "Edit product" : "Add product"} action={product ? <button onClick={cancel}><X />Cancel</button> : undefined}/><form onSubmit={submit}><label>Name<input name="name" required defaultValue={product?.name}/></label><label>Slug<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required defaultValue={product?.slug}/></label><label>Description<textarea name="description" rows={3} required defaultValue={product?.description}/></label><div className="admin-form-row"><label>Product type<input name="productType" required defaultValue={product?.product_type ?? "fashion"}/></label><label>Base price<input name="basePrice" type="number" min="0" required defaultValue={product?.base_price ?? 0}/></label></div><label>Primary image URL<input name="primaryImageUrl" required defaultValue={product?.primary_image_url ?? "/images/products/"}/></label><div className="admin-form-row"><label>Department<select name="departmentId" defaultValue={product?.department_id}>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label>Category<select name="categoryId" defaultValue={product?.category_id ?? ""}><option value="">No category</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label></div><div className="admin-form-row"><label>SKU<input name="sku" required defaultValue={variant?.sku}/></label><label>Stock<input name="stock" type="number" min="0" required defaultValue={variant?.stock ?? 0}/></label></div><div className="admin-form-row"><label>Option name<input name="optionName" defaultValue={variant ? Object.keys(variant.option_values)[0] : "Edition"}/></label><label>Option value<input name="optionValue" defaultValue={variant ? Object.values(variant.option_values)[0] : "Standard"}/></label></div><div className="admin-form-row"><label>Price adjustment<input name="priceAdjustment" type="number" defaultValue={variant?.price_adjustment ?? 0}/></label><label>Low stock alert<input name="lowStockThreshold" type="number" min="0" defaultValue={variant?.low_stock_threshold ?? 3}/></label></div><div className="admin-checks"><label><input type="checkbox" name="isAvailable" defaultChecked={product?.is_available ?? true}/>Available</label><label><input type="checkbox" name="isFeatured" defaultChecked={product?.is_featured ?? false}/>Featured</label><label><input type="checkbox" name="isNewArrival" defaultChecked={product?.is_new_arrival ?? true}/>New arrival</label></div><button className="admin-primary"><Save />{product ? "Save product" : "Create product"}</button></form></section>; }
+async function uploadProductImage(file: File) {
+  const { data: auth } = await getSupabaseBrowser().auth.getSession();
+  if (!auth.session) throw new Error("Your admin session has expired. Please sign in again.");
+  const body = new FormData();
+  body.set("file", file);
+  const response = await fetch("/api/admin/product-media", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${auth.session.access_token}` },
+    body,
+  });
+  const result = await response.json().catch(() => ({})) as { url?: string; error?: string };
+  if (!response.ok || !result.url) throw new Error(result.error ?? "The product image could not be uploaded.");
+  return result.url;
+}
 
-function Categories({ departments, rows, act }: { departments: Department[]; rows: Category[]; act: (p: Dict) => Promise<boolean> }) { const [editing, setEditing] = useState<Category | null>(null); const submit = async (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const f = new FormData(e.currentTarget); if (await act({ action: "upsert_category", ...(editing ? { id: editing.id } : {}), departmentId: Number(f.get("departmentId")), name: String(f.get("name")), slug: String(f.get("slug")), sortOrder: Number(f.get("sortOrder")), active: f.get("active") === "on" })) setEditing(null); }; return <section className="category-manager"><Heading eyebrow="Navigation taxonomy" title="Categories"/><form key={editing?.id ?? "new"} onSubmit={submit}><select name="departmentId" defaultValue={editing?.department_id}>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select><input name="name" placeholder="Category name" required defaultValue={editing?.name}/><input name="slug" placeholder="category-slug" required defaultValue={editing?.slug}/><input name="sortOrder" type="number" min="0" defaultValue={editing?.sort_order ?? 0}/><label><input name="active" type="checkbox" defaultChecked={editing?.is_active ?? true}/>Active</label><button><Save />{editing ? "Save" : "Add"}</button></form><div className="category-list">{rows.map((c) => <article key={c.id}><span><strong>{c.name}</strong><small>{c.slug}</small></span><button aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Edit3 /></button><button aria-label={`Delete ${c.name}`} onClick={() => window.confirm(`Delete ${c.name}?`) && void act({ action: "delete_category", categoryId: c.id })}><Trash2 /></button></article>)}</div></section>; }
+function ProductForm({ product, departments, categories, cancel, act }: { product: Product | null; departments: Department[]; categories: Category[]; cancel: () => void; act: (p: Dict) => Promise<boolean> }) {
+  const variant = product?.variants[0];
+  const [primaryFile, setPrimaryFile] = useState<File | null>(null);
+  const [hoverFile, setHoverFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const fields = new FormData(form);
+    setUploading(true);
+    setFormError("");
+
+    try {
+      const primaryImageUrl = primaryFile ? await uploadProductImage(primaryFile) : String(fields.get("primaryImageUrl") ?? "").trim();
+      const hoverImageUrl = hoverFile ? await uploadProductImage(hoverFile) : String(fields.get("hoverImageUrl") ?? "").trim();
+      if (!primaryImageUrl) throw new Error("Upload a primary product image or enter its URL.");
+
+      const payload = {
+        action: product ? "update_product" : "create_product",
+        ...(product ? { productId: product.id } : {}),
+        product: {
+          name: String(fields.get("name")),
+          slug: String(fields.get("slug")),
+          description: String(fields.get("description")),
+          productType: String(fields.get("productType")),
+          basePrice: Number(fields.get("basePrice")),
+          material: String(fields.get("material") ?? "").trim() || null,
+          care: String(fields.get("care") ?? "").trim() || null,
+          shippingNote: String(fields.get("shippingNote") ?? "").trim() || null,
+          returnPolicy: String(fields.get("returnPolicy") ?? "").trim() || null,
+          primaryImageUrl,
+          hoverImageUrl: hoverImageUrl || null,
+          videoUrl: String(fields.get("videoUrl") ?? "").trim() || null,
+          departmentId: Number(fields.get("departmentId")),
+          categoryId: Number(fields.get("categoryId")) || null,
+          isAvailable: fields.get("isAvailable") === "on",
+          isFeatured: fields.get("isFeatured") === "on",
+          isNewArrival: fields.get("isNewArrival") === "on",
+        },
+        variant: {
+          ...(variant?.id ? { id: variant.id } : {}),
+          sku: String(fields.get("sku")),
+          optionValues: { [String(fields.get("optionName") || "Edition")]: String(fields.get("optionValue") || "Standard") },
+          priceAdjustment: Number(fields.get("priceAdjustment")),
+          stock: Number(fields.get("stock")),
+          lowStockThreshold: Number(fields.get("lowStockThreshold")),
+          isActive: true,
+        },
+      };
+
+      if (!(await act(payload))) return;
+      if (product) {
+        cancel();
+      } else {
+        form.reset();
+        setPrimaryFile(null);
+        setHoverFile(null);
+      }
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "The product could not be saved.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return <section className="catalog-form-card">
+    <Heading eyebrow="Catalog editor" title={product ? "Edit product" : "Add product"} action={product ? <button onClick={cancel}><X />Cancel</button> : undefined}/>
+    <form onSubmit={submit}>
+      <label>Name<input name="name" required defaultValue={product?.name}/></label>
+      <label>Slug<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required defaultValue={product?.slug}/></label>
+      <label>Description<textarea name="description" rows={3} required defaultValue={product?.description}/></label>
+      <div className="admin-form-row"><label>Product type<input name="productType" required defaultValue={product?.product_type}/></label><label>Base price<input name="basePrice" type="number" min="0" required defaultValue={product?.base_price}/></label></div>
+      <div className="admin-form-row"><label>Material<textarea name="material" rows={2} defaultValue={product?.material ?? ""}/></label><label>Care<textarea name="care" rows={2} defaultValue={product?.care ?? ""}/></label></div>
+      <div className="admin-form-row"><label>Shipping note<textarea name="shippingNote" rows={2} defaultValue={product?.shipping_note ?? ""}/></label><label>Return policy<textarea name="returnPolicy" rows={2} defaultValue={product?.return_policy ?? ""}/></label></div>
+      <label>Primary image URL<input name="primaryImageUrl" placeholder="Paste a URL or upload below" defaultValue={product?.primary_image_url}/></label>
+      <label className="admin-file-field"><span><Upload />Primary image file</span><input name="primaryImageFile" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.avif,image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={(event) => setPrimaryFile(event.target.files?.[0] ?? null)}/><small>{primaryFile?.name ?? "JPG, JPEG, PNG, WEBP, GIF or AVIF · maximum 4 MB"}</small></label>
+      <label>Hover image URL<input name="hoverImageUrl" placeholder="Optional URL or upload below" defaultValue={product?.hover_image_url ?? ""}/></label>
+      <label className="admin-file-field"><span><Upload />Hover image file</span><input name="hoverImageFile" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.avif,image/jpeg,image/png,image/webp,image/gif,image/avif" onChange={(event) => setHoverFile(event.target.files?.[0] ?? null)}/><small>{hoverFile?.name ?? "Optional secondary product image"}</small></label>
+      <label>Product video URL<input name="videoUrl" placeholder="Optional MP4 or hosted video URL" defaultValue={product?.video_url ?? ""}/></label>
+      <div className="admin-form-row"><label>Department<select name="departmentId" defaultValue={product?.department_id}>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label><label>Category<select name="categoryId" defaultValue={product?.category_id ?? ""}><option value="">No category</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label></div>
+      <div className="admin-form-row"><label>SKU<input name="sku" required defaultValue={variant?.sku}/></label><label>Stock<input name="stock" type="number" min="0" required defaultValue={variant?.stock}/></label></div>
+      <div className="admin-form-row"><label>Option name<input name="optionName" placeholder="Edition" defaultValue={variant ? Object.keys(variant.option_values)[0] : undefined}/></label><label>Option value<input name="optionValue" placeholder="Standard" defaultValue={variant ? Object.values(variant.option_values)[0] : undefined}/></label></div>
+      <div className="admin-form-row"><label>Price adjustment<input name="priceAdjustment" type="number" defaultValue={variant?.price_adjustment}/></label><label>Low stock alert<input name="lowStockThreshold" type="number" min="0" defaultValue={variant?.low_stock_threshold}/></label></div>
+      <div className="admin-checks"><label><input type="checkbox" name="isAvailable" defaultChecked={product?.is_available ?? true}/>Available</label><label><input type="checkbox" name="isFeatured" defaultChecked={product?.is_featured ?? false}/>Featured</label><label><input type="checkbox" name="isNewArrival" defaultChecked={product?.is_new_arrival ?? true}/>New arrival</label></div>
+      {formError && <p className="admin-form-error" role="alert">{formError}</p>}
+      <button className="admin-primary" disabled={uploading}><Save />{uploading ? "Uploading images…" : product ? "Save product" : "Create product"}</button>
+    </form>
+  </section>;
+}
+
+function Categories({ departments, rows, act }: { departments: Department[]; rows: Category[]; act: (p: Dict) => Promise<boolean> }) { const [editing, setEditing] = useState<Category | null>(null); const submit = async (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); const form = e.currentTarget; const f = new FormData(form); if (await act({ action: "upsert_category", ...(editing ? { id: editing.id } : {}), departmentId: Number(f.get("departmentId")), name: String(f.get("name")), slug: String(f.get("slug")), sortOrder: Number(f.get("sortOrder")), active: f.get("active") === "on" })) { form.reset(); setEditing(null); } }; return <section className="category-manager"><Heading eyebrow="Navigation taxonomy" title="Categories"/><form key={editing?.id ?? "new"} onSubmit={submit}><select name="departmentId" defaultValue={editing?.department_id}>{departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select><input name="name" placeholder="Category name" required defaultValue={editing?.name}/><input name="slug" placeholder="category-slug" required defaultValue={editing?.slug}/><input name="sortOrder" type="number" min="0" defaultValue={editing?.sort_order}/><label><input name="active" type="checkbox" defaultChecked={editing?.is_active ?? true}/>Active</label><button><Save />{editing ? "Save" : "Add"}</button></form><div className="category-list">{rows.map((c) => <article key={c.id}><span><strong>{c.name}</strong><small>{c.slug}</small></span><button aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}><Edit3 /></button><button aria-label={`Delete ${c.name}`} onClick={() => window.confirm(`Delete ${c.name}?`) && void act({ action: "delete_category", categoryId: c.id })}><Trash2 /></button></article>)}</div></section>; }
 
 function Customers({ rows, act }: { rows: Customer[]; act: (p: Dict) => Promise<boolean> }) { return <section className="admin-table-card"><Heading eyebrow="Account access" title="Customers" meta={`${rows.length} accounts`}/><div className="table-scroll"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Points</th><th>Last sign in</th><th>Access</th></tr></thead><tbody>{rows.map((c) => <tr key={c.id}><td>{c.full_name || "Maison client"}</td><td>{c.email}</td><td>{titleCase(c.role)}</td><td>{c.loyalty_points}</td><td>{c.last_sign_in_at ? new Date(c.last_sign_in_at).toLocaleDateString() : "Never"}</td><td>{c.role === "admin" ? <span className="status-chip verified">Protected</span> : <button className={c.disabled ? "user-enable" : "user-disable"} onClick={() => void act({ action: "set_user_disabled", userId: c.id, disabled: !c.disabled })}>{c.disabled ? "Enable" : "Disable"}</button>}</td></tr>)}</tbody></table></div></section>; }
 
